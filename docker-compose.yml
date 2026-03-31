@@ -17,15 +17,11 @@ services:
       retries: 10
       start_period: 15s
 
-  # -------------------------------------------------------
-  # before: デフォルト設定
-  #   403/422 → span.status=0 (エラーとして扱われない)
-  #   → APM Traces Explorer でエラー表示されない
-  # -------------------------------------------------------
+  # before: DD_TRACE_HTTP_SERVER_ERROR_STATUSES 未設定（デフォルト）
+  # 403/422 → span.status=0 → APM にエラーとして表示されない
   app-before:
     build: .
     environment:
-      SCENARIO: before
       DD_SERVICE: http-status-before
       DD_ENV: local
       DD_AGENT_HOST: datadog-agent
@@ -36,20 +32,17 @@ services:
       datadog-agent:
         condition: service_healthy
 
-  # -------------------------------------------------------
-  # after: DD_TRACE_HTTP_SERVER_ERROR_STATUSES=403,422,500-599
-  #   403/422 → span.status=1 (APM でエラー表示される)
-  #   ただし error.type / error.message なし
-  #   → Error Tracking には Issues が作成されない
-  # -------------------------------------------------------
+  # after: DD_TRACE_HTTP_SERVER_ERROR_STATUSES を設定
+  # 403/422 → span.status=1 → APM にエラーとして表示される
+  # ただし error.type / error.message は付与されないため Error Tracking には Issue が作成されない
   app-after:
     build: .
     environment:
-      SCENARIO: after
       DD_SERVICE: http-status-after
       DD_ENV: local
       DD_AGENT_HOST: datadog-agent
       DD_TRACE_AGENT_PORT: "8126"
+      # デフォルト (500-599) に加えて 403, 422 もエラーとして扱う
       DD_TRACE_HTTP_SERVER_ERROR_STATUSES: "403,422,500-599"
     ports:
       - "4002:3000"
