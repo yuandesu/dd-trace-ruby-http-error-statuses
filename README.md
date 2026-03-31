@@ -83,6 +83,18 @@ Span is marked as error (`status=1`). The "Errors" tab appears, but shows **"Mis
 
 ![After 422](images/03_after_422.png)
 
+### For Error Tracking: GET 422 span detail
+
+Span is marked as error with full error details (`error.type`, `error.message`, `error.stack`) set via `span.set_error`. The "Errors" tab shows the complete error information.
+
+![For Error Tracking span](images/04_for-error-tracking.png)
+
+### Error Tracking — Issues list
+
+`http-status-for-error-tracking` creates Issues in Error Tracking. `http-status-before` and `http-status-after` do not appear here because they lack `error.type` / `error.message` / `error.stack`.
+
+![Error Tracking Issues](images/05_error_tracking.png)
+
 ## Endpoints
 
 | Path            | HTTP Status |
