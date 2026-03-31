@@ -1217,8 +1217,10 @@ sequenceDiagram
     if (idx < 0 || idx >= total) return;
     const from = slides[current];
     from.classList.remove('active');
-    from.classList.add(idx > current ? 'exit-left' : '');
-    setTimeout(() => from.classList.remove('exit-left'), 450);
+    if (idx > current) {
+      from.classList.add('exit-left');
+      setTimeout(() => from.classList.remove('exit-left'), 450);
+    }
 
     current = idx;
     slides[current].classList.add('active');
