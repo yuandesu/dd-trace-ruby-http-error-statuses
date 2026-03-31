@@ -34,7 +34,6 @@ services:
 
   # after: DD_TRACE_HTTP_SERVER_ERROR_STATUSES を設定
   # 403/422 → span.status=1 → APM にエラーとして表示される
-  # ただし error.type / error.message は付与されないため Error Tracking には Issue が作成されない
   app-after:
     build: .
     environment:
