@@ -74,5 +74,5 @@ docker compose down
 
 ## Related
 
-- [Datadog docs: HTTP server error statuses](https://docs.datadoghq.com/tracing/configure_data_security/?tab=ruby#http-server-error-statuses)
+- [Datadog docs: DD_TRACE_HTTP_SERVER_ERROR_STATUSES](https://docs.datadoghq.com/tracing/trace_collection/library_config/#integrations:~:text=DD_TRACE_HTTP_SERVER_ERROR_STATUSES)
 - [dd-trace-rb](https://github.com/DataDog/dd-trace-rb)
