@@ -12,18 +12,9 @@ end
 
 use Datadog::Tracing::Contrib::Rack::TraceMiddleware
 
-# When true, attach error.type / error.message / error.stack to 4xx spans
-# so they are tracked as Issues in Error Tracking
-ERROR_TRACKING_ENABLED = ENV.fetch('ERROR_TRACKING_ENABLED', 'false') == 'true'
-
-def tag_error(span, type, message)
-  err = StandardError.new(message)
-  err.set_backtrace(caller)
-  # Sets error.type, error.message, error.stack on the span
-  span.set_error(err)
-  # Override error.type with a descriptive name
-  span.set_tag('error.type', type)
-end
+# True only for the service that demonstrates Error Tracking integration.
+# Other services return 4xx without setting error tags to show the difference.
+ERROR_TRACKING_SERVICE = ENV.fetch('DD_SERVICE', '') == 'http-status-for-error-tracking'
 
 app = lambda do |env|
   req = Rack::Request.new(env)
@@ -33,16 +24,28 @@ app = lambda do |env|
     [200, { 'Content-Type' => 'application/json' }, ['{"status":"ok"}']]
 
   when '/forbidden'
-    if ERROR_TRACKING_ENABLED
+    if ERROR_TRACKING_SERVICE
       span = Datadog::Tracing.active_span
-      tag_error(span, 'ForbiddenError', 'Access forbidden') if span
+      if span
+        err = StandardError.new('Access forbidden')
+        err.set_backtrace(caller)
+        # span.set_error sets span.status=1 AND error.type / error.message / error.stack
+        # Required for Error Tracking to create Issues
+        span.set_error(err)
+      end
     end
     [403, { 'Content-Type' => 'application/json' }, ['{"error":"Forbidden"}']]
 
   when '/unprocessable'
-    if ERROR_TRACKING_ENABLED
+    if ERROR_TRACKING_SERVICE
       span = Datadog::Tracing.active_span
-      tag_error(span, 'UnprocessableEntityError', 'Unprocessable entity') if span
+      if span
+        err = StandardError.new('Unprocessable entity')
+        err.set_backtrace(caller)
+        # span.set_error sets span.status=1 AND error.type / error.message / error.stack
+        # Required for Error Tracking to create Issues
+        span.set_error(err)
+      end
     end
     [422, { 'Content-Type' => 'application/json' }, ['{"error":"Unprocessable Entity"}']]
 
