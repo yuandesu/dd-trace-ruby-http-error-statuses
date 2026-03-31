@@ -34,6 +34,7 @@ services:
 
   # after: DD_TRACE_HTTP_SERVER_ERROR_STATUSES を設定
   # 403/422 → span.status=1 → APM にエラーとして表示される
+  # error.type / error.message / error.stack は付与されないため Error Tracking には表示されない
   app-after:
     build: .
     environment:
@@ -45,6 +46,25 @@ services:
       DD_TRACE_HTTP_SERVER_ERROR_STATUSES: "403,422,500-599"
     ports:
       - "4002:3000"
+    depends_on:
+      datadog-agent:
+        condition: service_healthy
+
+  # for-error-tracking: DD_TRACE_HTTP_SERVER_ERROR_STATUSES + error.type / error.message / error.stack
+  # 403/422 → span.status=1 + error tags → APM にエラー表示 + Error Tracking に Issue 作成
+  app-for-error-tracking:
+    build: .
+    environment:
+      DD_SERVICE: http-status-for-error-tracking
+      DD_ENV: local
+      DD_AGENT_HOST: datadog-agent
+      DD_TRACE_AGENT_PORT: "8126"
+      # デフォルト (500-599) に加えて 403, 422 もエラーとして扱う
+      DD_TRACE_HTTP_SERVER_ERROR_STATUSES: "403,422,500-599"
+      # error.type / error.message / error.stack を付与して Error Tracking に Issue を作成する
+      ERROR_TRACKING_ENABLED: "true"
+    ports:
+      - "4003:3000"
     depends_on:
       datadog-agent:
         condition: service_healthy
