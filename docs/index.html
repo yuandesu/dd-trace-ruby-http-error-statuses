@@ -831,29 +831,29 @@ _ERROR_STATUSES
   <!-- ═══ SLIDE 6 ── before: フロー ════════════════════════ -->
   <div class="slide" id="s6">
     <div class="slide-tag" style="background:rgba(148,163,184,0.12);border-color:rgba(148,163,184,0.3);color:#94a3b8;">Service ① — before フロー</div>
-    <h2 class="slide-heading">POST /forbidden のトレース処理（before）</h2>
-    <div class="flow-slide">
-      <div class="mermaid-box">
-        <pre class="mermaid">
-sequenceDiagram
-    participant C as Client
-    participant R as Rack Middleware
-    participant A as app-before
-    participant D as Datadog Agent
-    participant DD as Datadog Cloud
+    <h2 class="slide-heading">span がエラーとしてマークされるまでの流れ（before）</h2>
+    <div class="mermaid-box" style="max-width:640px;width:100%;margin-top:0.6rem;">
+      <pre class="mermaid">
+flowchart TD
+    A["📥 POST /forbidden を受信"] --> B["Rack Middleware\nspan を作成\nstatus = 0"]
+    B --> C["App が処理 → 403 Forbidden を返す"]
+    C --> D{"エラー範囲チェック\nデフォルト: 500-599"}
+    D -->|"403 ∉ エラー範囲"| E["span.status = 0 のまま\nerror タグは付与されない"]
+    D -->|"500〜599 のみ該当"| X["500系なら span.status = 1"]
+    E --> F["Datadog Agent に span を送信"]
+    F --> G1["APM Traces Explorer\nエラーなし ✗"]
+    F --> G2["Error Tracking\nIssue なし ✗"]
 
-    C->>R: POST /forbidden
-    Note over R: span 作成 (status=0)
-    R->>A: リクエスト転送
-    A-->>R: 403 Forbidden
-    Note over R: エラー範囲 = 500-599 (デフォルト)
-    Note over R: 403 はエラー範囲外 → status=0 のまま
-    R-->>C: 403 Forbidden
-    R->>D: span 送信 (status=0, error タグなし)
-    D->>DD: トレース転送
-    Note over DD: APM エラーなし / Error Tracking Issue なし
-        </pre>
-      </div>
+    classDef default fill:#242740,stroke:#2e3250,color:#e2e8f0
+    classDef decision fill:#1a1d2e,stroke:#3a4060,color:#e2e8f0
+    classDef ok fill:#052e16,stroke:#34d399,color:#34d399
+    classDef ng fill:#2d0a0a,stroke:#f87171,color:#f87171
+    classDef gray fill:#1e2335,stroke:#4b5563,color:#94a3b8
+
+    class D decision
+    class G1,G2 ng
+    class X gray
+      </pre>
     </div>
   </div>
 
@@ -917,30 +917,30 @@ sequenceDiagram
   <!-- ═══ SLIDE 8 ── after: フロー ═════════════════════════ -->
   <div class="slide" id="s8">
     <div class="slide-tag" style="background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.3);color:var(--yellow);">Service ② — after フロー</div>
-    <h2 class="slide-heading">POST /forbidden のトレース処理（after）</h2>
-    <div class="flow-slide">
-      <div class="mermaid-box">
-        <pre class="mermaid">
-sequenceDiagram
-    participant C as Client
-    participant R as Rack Middleware
-    participant A as app-after
-    participant D as Datadog Agent
-    participant DD as Datadog Cloud
+    <h2 class="slide-heading">span がエラーとしてマークされるまでの流れ（after）</h2>
+    <div class="mermaid-box" style="max-width:680px;width:100%;margin-top:0.6rem;">
+      <pre class="mermaid">
+flowchart TD
+    A["📥 POST /forbidden を受信"] --> B["Rack Middleware\nspan を作成\nstatus = 0"]
+    B --> C["App が処理 → 403 Forbidden を返す"]
+    C --> D{"エラー範囲チェック\nDD_TRACE_HTTP_SERVER_ERROR_STATUSES\n= 403,422,500-599"}
+    D -->|"403 ∈ エラー範囲"| E["span.status = 1 にセット"]
+    E --> F["⚠️ error.type / error.message / error.stack\nは付与されない"]
+    F --> G["Datadog Agent に span を送信"]
+    G --> H1["APM Traces Explorer\nエラー表示 ✓"]
+    G --> H2["Error Tracking\nIssue なし ✗\n（error タグが必要）"]
 
-    C->>R: POST /forbidden
-    Note over R: span 作成 (status=0)
-    R->>A: リクエスト転送
-    A-->>R: 403 Forbidden
-    Note over R: DD_TRACE_HTTP_SERVER_ERROR_STATUSES=403,422,500-599
-    Note over R: 403 はエラー範囲内 → status=1 にセット
-    Note over R: error.type / error.message / error.stack は付与されない
-    R-->>C: 403 Forbidden
-    R->>D: span 送信 (status=1, error タグなし)
-    D->>DD: トレース転送
-    Note over DD: APM エラー表示あり / Error Tracking Issue なし
-        </pre>
-      </div>
+    classDef default fill:#242740,stroke:#2e3250,color:#e2e8f0
+    classDef decision fill:#1a1d2e,stroke:#3a4060,color:#e2e8f0
+    classDef ok fill:#052e16,stroke:#34d399,color:#34d399
+    classDef ng fill:#2d0a0a,stroke:#f87171,color:#f87171
+    classDef warn fill:#2d1f00,stroke:#fbbf24,color:#fbbf24
+
+    class D decision
+    class H1 ok
+    class H2 ng
+    class F warn
+      </pre>
     </div>
   </div>
 
@@ -1004,29 +1004,25 @@ sequenceDiagram
   <!-- ═══ SLIDE 10 ── for-error-tracking: フロー ══════════ -->
   <div class="slide" id="s10">
     <div class="slide-tag" style="background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.3);color:var(--green);">Service ③ — for-error-tracking フロー</div>
-    <h2 class="slide-heading">POST /forbidden のトレース処理（for-error-tracking）</h2>
-    <div class="flow-slide">
-      <div class="mermaid-box">
-        <pre class="mermaid">
-sequenceDiagram
-    participant C as Client
-    participant R as Rack Middleware
-    participant A as app-for-error-tracking
-    participant D as Datadog Agent
-    participant DD as Datadog Cloud
+    <h2 class="slide-heading">span がエラーとしてマークされるまでの流れ（for-error-tracking）</h2>
+    <div class="mermaid-box" style="max-width:660px;width:100%;margin-top:0.6rem;">
+      <pre class="mermaid">
+flowchart TD
+    A["📥 POST /forbidden を受信"] --> B["Rack Middleware\nspan を作成\nstatus = 0"]
+    B --> C["span.set_error(exception) を呼び出す"]
+    C --> D["span.status = 1\nerror.type = 'StandardError'\nerror.message = 'Access forbidden'\nerror.stack = スタックトレース"]
+    D --> E["App が 403 Forbidden を返す"]
+    E --> F["Datadog Agent に span を送信\n（status=1 + error タグ付き）"]
+    F --> G1["APM Traces Explorer\nエラー表示 ✓"]
+    F --> G2["Error Tracking\nIssue 作成 ✓"]
 
-    C->>R: POST /forbidden
-    Note over R: span 作成 (status=0)
-    R->>A: リクエスト転送
-    Note over A: span.set_error(exception) を呼び出す
-    Note over A: status=1 + error.type + error.message + error.stack
-    A-->>R: 403 Forbidden
-    R-->>C: 403 Forbidden
-    R->>D: span 送信 (status=1 + error タグ付き)
-    D->>DD: トレース転送
-    Note over DD: APM エラー表示あり / Error Tracking Issue 作成
-        </pre>
-      </div>
+    classDef default fill:#242740,stroke:#2e3250,color:#e2e8f0
+    classDef setError fill:#052e16,stroke:#34d399,color:#34d399
+    classDef ok fill:#052e16,stroke:#34d399,color:#34d399
+
+    class C,D setError
+    class G1,G2 ok
+      </pre>
     </div>
   </div>
 
