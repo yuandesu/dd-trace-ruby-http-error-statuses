@@ -1,5 +1,7 @@
 # dd-trace-ruby-http-error-statuses
 
+**Interactive Demo Site:** https://yuandesu.github.io/dd-trace-ruby-http-error-statuses/
+
 ---
 
 ## English
@@ -94,6 +96,10 @@ docker compose down
 | `/ok` | 200 |
 | `/forbidden` | 403 |
 | `/unprocessable` | 422 |
+
+---
+
+**インタラクティブデモサイト:** https://yuandesu.github.io/dd-trace-ruby-http-error-statuses/
 
 ---
 
