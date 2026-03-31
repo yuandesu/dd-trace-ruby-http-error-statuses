@@ -1,17 +1,16 @@
 # dd-trace-ruby-http-error-statuses
 
-A minimal Ruby + Rack demo that shows the **before/after difference** of setting `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` in Datadog APM.
+A minimal Ruby + Rack demo that shows the difference between three configurations for handling 4xx HTTP responses in Datadog APM and Error Tracking.
 
-By default, the Datadog Ruby tracer only marks HTTP 5xx responses as errors. This demo shows that by setting `DD_TRACE_HTTP_SERVER_ERROR_STATUSES`, you can also make 4xx responses (e.g. 403, 422) appear as errors in APM Traces Explorer.
+By default, the Datadog Ruby tracer only marks HTTP 5xx responses as errors. This demo shows how to make 4xx responses (e.g. 403, 422) appear as errors in APM Traces Explorer, and how to further enable Error Tracking Issues by attaching `error.type`, `error.message`, and `error.stack`.
 
 ## What this demo shows
 
-| Scenario | `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` | 403 / 422 span status | APM error |
-|----------|--------------------------------------|----------------------|-----------|
-| `before` | not set (default)                    | `status=0`           | ❌        |
-| `after`  | `403,422,500-599`                    | `status=1`           | ✅        |
-
-> **Note:** Setting `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` alone marks the span as an error (`status=1`) but does **not** set `error.type` or `error.message`. Therefore, errors will appear in the APM Traces Explorer but **will not** create Issues in Error Tracking.
+| Service | `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` | `error.type` / `error.message` / `error.stack` | APM error | Error Tracking |
+|---------|--------------------------------------|------------------------------------------------|-----------|----------------|
+| `before` | not set (default) | — | ❌ | ❌ |
+| `after` | `403,422,500-599` | — | ✅ | ❌ |
+| `for-error-tracking` | `403,422,500-599` | ✅ set via `span.set_error` | ✅ | ✅ |
 
 ## Prerequisites
 
@@ -44,6 +43,7 @@ This starts:
 - `datadog-agent` — Datadog Agent (port 8127 on host)
 - `app-before` — Rack app without `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` (port 4001)
 - `app-after` — Rack app with `DD_TRACE_HTTP_SERVER_ERROR_STATUSES=403,422,500-599` (port 4002)
+- `app-for-error-tracking` — Rack app with `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` + `error.type` / `error.message` / `error.stack` (port 4003)
 
 **4. Send test requests**
 
@@ -56,7 +56,12 @@ bash test.sh
 Go to [APM → Traces](https://app.datadoghq.com/apm/traces) and filter by `env:local`.
 
 - `service:http-status-before` — 403/422 spans show no error (grey)
-- `service:http-status-after` — 403/422 spans show as errors (red)
+- `service:http-status-after` — 403/422 spans show as errors (red), but no error details
+- `service:http-status-for-error-tracking` — 403/422 spans show as errors with full error details
+
+Go to [APM → Error Tracking](https://app.datadoghq.com/apm/error-tracking) and filter by `env:local`.
+
+- Only `http-status-for-error-tracking` creates Issues
 
 ## Screenshots
 
@@ -95,4 +100,5 @@ docker compose down
 ## Related
 
 - [Datadog docs: DD_TRACE_HTTP_SERVER_ERROR_STATUSES](https://docs.datadoghq.com/tracing/trace_collection/library_config/#integrations:~:text=DD_TRACE_HTTP_SERVER_ERROR_STATUSES)
+- [Datadog docs: Use span attributes to track error spans](https://docs.datadoghq.com/tracing/error_tracking/#use-span-attributes-to-track-error-spans)
 - [dd-trace-rb](https://github.com/DataDog/dd-trace-rb)
