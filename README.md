@@ -1,0 +1,78 @@
+# dd-trace-ruby-http-error-statuses
+
+A minimal Ruby + Rack demo that shows the **before/after difference** of setting `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` in Datadog APM.
+
+By default, the Datadog Ruby tracer only marks HTTP 5xx responses as errors. This demo shows that by setting `DD_TRACE_HTTP_SERVER_ERROR_STATUSES`, you can also make 4xx responses (e.g. 403, 422) appear as errors in APM Traces Explorer.
+
+## What this demo shows
+
+| Scenario | `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` | 403 / 422 span status | APM error |
+|----------|--------------------------------------|----------------------|-----------|
+| `before` | not set (default)                    | `status=0`           | ❌        |
+| `after`  | `403,422,500-599`                    | `status=1`           | ✅        |
+
+> **Note:** Setting `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` alone marks the span as an error (`status=1`) but does **not** set `error.type` or `error.message`. Therefore, errors will appear in the APM Traces Explorer but **will not** create Issues in Error Tracking.
+
+## Prerequisites
+
+- Docker & Docker Compose
+- A Datadog account with APM enabled
+- A valid Datadog API key
+
+## Setup
+
+**1. Clone the repository**
+
+```bash
+git clone https://github.com/yuandesu/dd-trace-ruby-http-error-statuses.git
+cd dd-trace-ruby-http-error-statuses
+```
+
+**2. Create a `.env` file with your Datadog API key**
+
+```bash
+echo "DD_API_KEY={your_dd_api_key}" > .env
+```
+
+**3. Start all services**
+
+```bash
+docker compose up -d
+```
+
+This starts:
+- `datadog-agent` — Datadog Agent (port 8127 on host)
+- `app-before` — Rack app without `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` (port 4001)
+- `app-after` — Rack app with `DD_TRACE_HTTP_SERVER_ERROR_STATUSES=403,422,500-599` (port 4002)
+
+**4. Send test requests**
+
+```bash
+bash test.sh
+```
+
+**5. Check results in Datadog**
+
+Go to [APM → Traces](https://app.datadoghq.com/apm/traces) and filter by `env:local`.
+
+- `service:http-status-before` — 403/422 spans show no error (grey)
+- `service:http-status-after` — 403/422 spans show as errors (red)
+
+## Endpoints
+
+| Path            | HTTP Status |
+|-----------------|-------------|
+| `/ok`           | 200         |
+| `/forbidden`    | 403         |
+| `/unprocessable`| 422         |
+
+## Teardown
+
+```bash
+docker compose down
+```
+
+## Related
+
+- [Datadog docs: HTTP server error statuses](https://docs.datadoghq.com/tracing/configure_data_security/?tab=ruby#http-server-error-statuses)
+- [dd-trace-rb](https://github.com/DataDog/dd-trace-rb)

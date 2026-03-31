@@ -1,0 +1,58 @@
+services:
+  datadog-agent:
+    image: datadog/agent:7
+    environment:
+      DD_API_KEY: ${DD_API_KEY}
+      DD_SITE: datadoghq.com
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"
+      DD_LOG_LEVEL: WARN
+      DD_HOSTNAME: dd-agent-local
+    ports:
+      - "8127:8126"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8126/info"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  # -------------------------------------------------------
+  # before: デフォルト設定
+  #   403/422 → span.status=0 (エラーとして扱われない)
+  #   → APM Traces Explorer でエラー表示されない
+  # -------------------------------------------------------
+  app-before:
+    build: .
+    environment:
+      SCENARIO: before
+      DD_SERVICE: http-status-before
+      DD_ENV: local
+      DD_AGENT_HOST: datadog-agent
+      DD_TRACE_AGENT_PORT: "8126"
+    ports:
+      - "4001:3000"
+    depends_on:
+      datadog-agent:
+        condition: service_healthy
+
+  # -------------------------------------------------------
+  # after: DD_TRACE_HTTP_SERVER_ERROR_STATUSES=403,422,500-599
+  #   403/422 → span.status=1 (APM でエラー表示される)
+  #   ただし error.type / error.message なし
+  #   → Error Tracking には Issues が作成されない
+  # -------------------------------------------------------
+  app-after:
+    build: .
+    environment:
+      SCENARIO: after
+      DD_SERVICE: http-status-after
+      DD_ENV: local
+      DD_AGENT_HOST: datadog-agent
+      DD_TRACE_AGENT_PORT: "8126"
+      DD_TRACE_HTTP_SERVER_ERROR_STATUSES: "403,422,500-599"
+    ports:
+      - "4002:3000"
+    depends_on:
+      datadog-agent:
+        condition: service_healthy
