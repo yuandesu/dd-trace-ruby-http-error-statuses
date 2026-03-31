@@ -58,6 +58,26 @@ Go to [APM → Traces](https://app.datadoghq.com/apm/traces) and filter by `env:
 - `service:http-status-before` — 403/422 spans show no error (grey)
 - `service:http-status-after` — 403/422 spans show as errors (red)
 
+## Screenshots
+
+### Traces list — both services side by side
+
+`http-status-before` shows 403/422 as normal (no error highlight), while `http-status-after` shows them in red.
+
+![Traces list](images/01_traces_list.png)
+
+### Before: GET 422 span detail
+
+No error flag. The span is treated as a normal response — no "Errors" tab, no error message.
+
+![Before 422](images/02_before_422.png)
+
+### After: GET 422 span detail
+
+Span is marked as error (`status=1`). The "Errors" tab appears, but shows **"Missing error message and stack trace"** because `error.type` / `error.message` are not set. This is the limitation of `DD_TRACE_HTTP_SERVER_ERROR_STATUSES` alone.
+
+![After 422](images/03_after_422.png)
+
 ## Endpoints
 
 | Path            | HTTP Status |
