@@ -1,1263 +1,280 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>dd-trace-ruby で 4xx エラーを追跡する</title>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-  <style>
-    :root {
-      --bg:       #0f1117;
-      --surface:  #1a1d2e;
-      --surface2: #242740;
-      --border:   #2e3250;
-      --text:     #e2e8f0;
-      --muted:    #8892a4;
-      --purple:   #7b61ff;
-      --purple-l: #a78bfa;
-      --green:    #34d399;
-      --red:      #f87171;
-      --yellow:   #fbbf24;
-      --blue:     #60a5fa;
-      --orange:   #fb923c;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html, body {
-      width: 100%; height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      overflow: hidden;
-    }
-
-    /* ═══════════════════════════════
-       SLIDE CONTAINER
-    ═══════════════════════════════ */
-    .deck {
-      width: 100%; height: 100vh;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .slide {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      padding: 4rem 6rem;
-      opacity: 0;
-      transform: translateX(60px);
-      transition: opacity 0.45s ease, transform 0.45s ease;
-      pointer-events: none;
-      overflow: hidden;
-    }
-    .slide.active {
-      opacity: 1;
-      transform: translateX(0);
-      pointer-events: auto;
-    }
-    .slide.exit-left {
-      opacity: 0;
-      transform: translateX(-60px);
-    }
-
-    /* ═══════════════════════════════
-       PROGRESS BAR
-    ═══════════════════════════════ */
-    .progress-bar {
-      position: fixed;
-      top: 0; left: 0;
-      height: 3px;
-      background: linear-gradient(90deg, var(--purple), var(--purple-l));
-      transition: width 0.4s ease;
-      z-index: 100;
-    }
-
-    /* ═══════════════════════════════
-       NAV
-    ═══════════════════════════════ */
-    .nav {
-      position: fixed;
-      bottom: 2rem;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      align-items: center;
-      gap: 1.2rem;
-      z-index: 100;
-      background: rgba(15,17,23,0.85);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 0.5rem 1.2rem;
-    }
-    .nav-btn {
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 1.1rem;
-      padding: 0.3rem 0.6rem;
-      border-radius: 8px;
-      transition: color 0.15s, background 0.15s;
-      line-height: 1;
-    }
-    .nav-btn:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,0.06); }
-    .nav-btn:disabled { opacity: 0.25; cursor: default; }
-    .nav-counter {
-      font-size: 0.78rem;
-      color: var(--muted);
-      min-width: 60px;
-      text-align: center;
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* dots */
-    .nav-dots {
-      display: flex;
-      gap: 0.35rem;
-      align-items: center;
-    }
-    .dot {
-      width: 6px; height: 6px;
-      border-radius: 50%;
-      background: var(--border);
-      transition: background 0.2s, transform 0.2s;
-      cursor: pointer;
-    }
-    .dot.active { background: var(--purple-l); transform: scale(1.4); }
-
-    /* hint */
-    .key-hint {
-      position: fixed;
-      bottom: 2rem;
-      right: 2rem;
-      font-size: 0.65rem;
-      color: #3a4060;
-      z-index: 100;
-    }
-
-    /* ═══════════════════════════════
-       COMMON SLIDE ELEMENTS
-    ═══════════════════════════════ */
-    .slide-tag {
-      font-size: 0.68rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--purple-l);
-      background: rgba(123,97,255,0.15);
-      border: 1px solid rgba(123,97,255,0.3);
-      padding: 0.2rem 0.7rem;
-      border-radius: 999px;
-      margin-bottom: 1.2rem;
-    }
-
-    h1.slide-title {
-      font-size: clamp(1.8rem, 4vw, 3rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      text-align: center;
-      line-height: 1.2;
-      margin-bottom: 1rem;
-    }
-    h2.slide-heading {
-      font-size: clamp(1.4rem, 3vw, 2.2rem);
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      margin-bottom: 1.2rem;
-      line-height: 1.25;
-    }
-    p.slide-lead {
-      font-size: clamp(0.9rem, 1.6vw, 1.1rem);
-      color: var(--muted);
-      line-height: 1.75;
-      max-width: 700px;
-      text-align: center;
-    }
-
-    code {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.88em;
-      background: rgba(255,255,255,0.08);
-      padding: 0.1em 0.4em;
-      border-radius: 4px;
-    }
-    .hl { color: var(--purple-l); }
-    .hl-green  { color: var(--green); }
-    .hl-yellow { color: var(--yellow); }
-    .hl-red    { color: var(--red); }
-    .hl-blue   { color: var(--blue); }
-
-    /* ═══════════════════════════════
-       SLIDE 1 — TITLE
-    ═══════════════════════════════ */
-    #s1 { background: radial-gradient(ellipse at 50% 0%, rgba(123,97,255,0.18) 0%, transparent 65%), var(--bg); }
-    .title-code {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: clamp(0.9rem, 2vw, 1.3rem);
-      color: var(--purple-l);
-      background: rgba(123,97,255,0.1);
-      border: 1px solid rgba(123,97,255,0.25);
-      padding: 0.5rem 1.2rem;
-      border-radius: 8px;
-      margin-bottom: 1.5rem;
-    }
-    .title-sub {
-      color: var(--muted);
-      font-size: clamp(0.85rem, 1.5vw, 1rem);
-      margin-bottom: 2.5rem;
-    }
-    .title-tech-stack {
-      display: flex;
-      gap: 0.6rem;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-    .tech-badge {
-      font-size: 0.72rem;
-      font-weight: 600;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.25rem 0.6rem;
-      color: var(--muted);
-    }
-
-    /* ═══════════════════════════════
-       CARD
-    ═══════════════════════════════ */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.5rem 1.8rem;
-    }
-
-    /* ═══════════════════════════════
-       SLIDE 2 — PROBLEM
-    ═══════════════════════════════ */
-    .problem-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-      width: 100%;
-      max-width: 880px;
-      margin-top: 1rem;
-    }
-    .problem-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.4rem 1.6rem;
-    }
-    .problem-card h3 {
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-bottom: 0.75rem;
-    }
-    .problem-card p { font-size: 0.88rem; color: var(--muted); line-height: 1.7; }
-    .problem-card p strong { color: var(--text); }
-
-    /* ═══════════════════════════════
-       STATUS ROW
-    ═══════════════════════════════ */
-    .status-row {
-      display: flex;
-      gap: 0.75rem;
-      margin-top: 0.75rem;
-      flex-wrap: wrap;
-    }
-    .status-chip {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      font-size: 0.78rem;
-      font-weight: 600;
-      padding: 0.3rem 0.75rem;
-      border-radius: 999px;
-    }
-    .chip-red   { background: rgba(248,113,113,0.15); color: var(--red);   border: 1px solid rgba(248,113,113,0.25); }
-    .chip-green { background: rgba(52,211,153,0.15);  color: var(--green); border: 1px solid rgba(52,211,153,0.25); }
-    .chip-gray  { background: rgba(148,163,184,0.12); color: #94a3b8;      border: 1px solid rgba(148,163,184,0.2); }
-    .chip-yellow{ background: rgba(251,191,36,0.13);  color: var(--yellow);border: 1px solid rgba(251,191,36,0.25); }
-
-    /* ═══════════════════════════════
-       SLIDE 3 — GOAL
-    ═══════════════════════════════ */
-    .goal-list {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      width: 100%;
-      max-width: 720px;
-      margin-top: 1.2rem;
-    }
-    .goal-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 1rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.1rem 1.4rem;
-    }
-    .goal-num {
-      width: 28px; height: 28px;
-      background: rgba(123,97,255,0.2);
-      border: 1px solid rgba(123,97,255,0.35);
-      border-radius: 50%;
-      font-size: 0.75rem;
-      font-weight: 700;
-      color: var(--purple-l);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      margin-top: 0.1rem;
-    }
-    .goal-item p { font-size: 0.88rem; line-height: 1.65; color: var(--muted); }
-    .goal-item p strong { color: var(--text); }
-
-    /* ═══════════════════════════════
-       SLIDE 4 — ARCHITECTURE
-    ═══════════════════════════════ */
-    .arch-outer {
-      width: 100%;
-      max-width: 860px;
-      margin-top: 0.8rem;
-    }
-    .docker-box {
-      border: 2px dashed #3a4060;
-      border-radius: 14px;
-      padding: 1.2rem 1.2rem 1rem;
-      position: relative;
-    }
-    .docker-label {
-      position: absolute;
-      top: -0.6rem; left: 1rem;
-      background: var(--bg);
-      padding: 0 0.5rem;
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #3a4060;
-    }
-    .arch-apps {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0.75rem;
-    }
-    .arch-box {
-      border-radius: 10px;
-      padding: 0.85rem 0.9rem;
-      border: 1px solid;
-    }
-    .arch-box-name { font-size: 0.78rem; font-weight: 700; margin-bottom: 0.2rem; }
-    .arch-box-svc  { font-size: 0.62rem; font-family: monospace; opacity: 0.65; margin-bottom: 0.2rem; }
-    .arch-box-port { font-size: 0.62rem; font-family: monospace; color: var(--muted); }
-    .arch-box-env  {
-      font-size: 0.6rem; font-family: monospace;
-      background: rgba(0,0,0,0.25);
-      border-radius: 5px;
-      padding: 0.3rem 0.4rem;
-      margin-top: 0.4rem;
-      line-height: 1.55;
-      word-break: break-all;
-    }
-    .ab { background: rgba(148,163,184,0.06); border-color: rgba(148,163,184,0.22); }
-    .ab .arch-box-name { color: #94a3b8; }
-    .ab .arch-box-env  { color: #94a3b8; }
-    .aa { background: rgba(251,191,36,0.07); border-color: rgba(251,191,36,0.28); }
-    .aa .arch-box-name { color: var(--yellow); }
-    .aa .arch-box-env  { color: #fde68a; }
-    .ae { background: rgba(52,211,153,0.07); border-color: rgba(52,211,153,0.28); }
-    .ae .arch-box-name { color: var(--green); }
-    .ae .arch-box-env  { color: #6ee7b7; }
-    .ag { background: rgba(96,165,250,0.08); border-color: rgba(96,165,250,0.3); }
-    .ag .arch-box-name { color: var(--blue); }
-    .ag .arch-box-env  { color: #93c5fd; }
-
-    .arch-arrow {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.4rem;
-      margin: 0.5rem 0;
-      font-size: 0.65rem;
-      color: var(--muted);
-    }
-    .arch-arrow .line { height: 1px; flex: 1; background: #3a4060; }
-    .arch-agent-row { display: flex; justify-content: center; }
-    .arch-agent-wrap { width: 220px; }
-
-    .arch-outside {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-      margin-top: 0;
-    }
-    .vline { width: 2px; height: 28px; background: #3a4060; }
-    .cloud-box {
-      background: linear-gradient(135deg, rgba(123,97,255,0.12), rgba(123,97,255,0.06));
-      border: 1px solid rgba(123,97,255,0.38);
-      border-radius: 12px;
-      padding: 0.8rem 2rem;
-      text-align: center;
-    }
-    .cloud-name { font-size: 0.9rem; font-weight: 700; color: var(--purple-l); }
-    .cloud-subs { display: flex; gap: 0.6rem; justify-content: center; margin-top: 0.35rem; flex-wrap: wrap; }
-    .cloud-sub {
-      font-size: 0.65rem;
-      background: rgba(123,97,255,0.15);
-      border: 1px solid rgba(123,97,255,0.25);
-      border-radius: 5px;
-      padding: 0.12rem 0.45rem;
-      color: var(--purple-l);
-    }
-    .tri-down { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid #3a4060; }
-
-    /* ═══════════════════════════════
-       SLIDE — SERVICE DETAIL
-    ═══════════════════════════════ */
-    .svc-layout {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-      width: 100%;
-      max-width: 900px;
-      margin-top: 0.8rem;
-    }
-    .svc-col { display: flex; flex-direction: column; gap: 1rem; }
-    .svc-label {
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 0.35rem;
-    }
-
-    pre.code-block {
-      background: rgba(0,0,0,0.4);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem 1.1rem;
-      font-size: 0.78rem;
-      line-height: 1.65;
-      overflow-x: auto;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-    }
-    .kw   { color: #c084fc; }
-    .str  { color: #86efac; }
-    .cmt  { color: #4b5563; font-style: italic; }
-    .num  { color: #fb923c; }
-    .mth  { color: #60a5fa; }
-    .cst  { color: #fbbf24; }
-
-    .result-box {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1rem 1.2rem;
-    }
-    .result-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.45rem 0;
-      font-size: 0.82rem;
-    }
-    .result-row + .result-row { border-top: 1px solid var(--border); }
-    .result-row .label { color: var(--muted); }
-    .result-row .val-ok  { color: var(--green); font-weight: 700; }
-    .result-row .val-ng  { color: var(--red);   font-weight: 700; }
-
-    .explain-box {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1rem 1.2rem;
-    }
-    .explain-box p { font-size: 0.83rem; color: var(--muted); line-height: 1.7; }
-    .explain-box p strong { color: var(--text); }
-    .explain-box p + p { margin-top: 0.5rem; }
-
-    /* ═══════════════════════════════
-       SLIDE — FLOW DIAGRAM
-    ═══════════════════════════════ */
-    .flow-slide {
-      width: 100%;
-      max-width: 820px;
-      margin-top: 0.6rem;
-    }
-    .mermaid-box {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.2rem 1rem;
-      overflow-x: auto;
-    }
-    .mermaid { font-size: 0.75rem; }
-
-    /* ═══════════════════════════════
-       SLIDE — COMPARISON TABLE
-    ═══════════════════════════════ */
-    .cmp-table {
-      width: 100%;
-      max-width: 860px;
-      border-collapse: collapse;
-      font-size: 0.83rem;
-      margin-top: 0.8rem;
-    }
-    .cmp-table th {
-      background: var(--surface2);
-      color: var(--muted);
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      padding: 0.7rem 1rem;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    .cmp-table td {
-      padding: 0.8rem 1rem;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-    .cmp-table tr:last-child td { border-bottom: none; }
-    .cmp-table tr:hover td { background: rgba(255,255,255,0.02); }
-    .sn { font-family: monospace; font-size: 0.78rem; font-weight: 600; }
-    .sn-b { color: #94a3b8; }
-    .sn-a { color: var(--yellow); }
-    .sn-e { color: var(--green); }
-
-    /* ═══════════════════════════════
-       SLIDE — SETUP
-    ═══════════════════════════════ */
-    .setup-steps {
-      display: flex;
-      flex-direction: column;
-      gap: 0.8rem;
-      width: 100%;
-      max-width: 700px;
-      margin-top: 0.8rem;
-    }
-    .step {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.9rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1rem 1.2rem;
-    }
-    .step-num {
-      width: 26px; height: 26px;
-      background: rgba(123,97,255,0.2);
-      border: 1px solid rgba(123,97,255,0.35);
-      border-radius: 50%;
-      font-size: 0.72rem;
-      font-weight: 700;
-      color: var(--purple-l);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-    .step-content { flex: 1; }
-    .step-content .step-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; }
-    .step-content code { font-size: 0.78rem; }
-
-    /* ═══════════════════════════════
-       SLIDE — SUMMARY
-    ═══════════════════════════════ */
-    #s-summary { background: radial-gradient(ellipse at 50% 100%, rgba(52,211,153,0.1) 0%, transparent 60%), var(--bg); }
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1rem;
-      width: 100%;
-      max-width: 860px;
-      margin-top: 1rem;
-    }
-    .summary-card {
-      border-radius: 14px;
-      padding: 1.3rem 1.2rem;
-      border: 1px solid;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-    .sc-b { background: rgba(148,163,184,0.06); border-color: rgba(148,163,184,0.22); }
-    .sc-a { background: rgba(251,191,36,0.07);  border-color: rgba(251,191,36,0.28); }
-    .sc-e { background: rgba(52,211,153,0.07);  border-color: rgba(52,211,153,0.28); }
-    .sc-b .sc-name { color: #94a3b8; }
-    .sc-a .sc-name { color: var(--yellow); }
-    .sc-e .sc-name { color: var(--green); }
-    .sc-name { font-size: 0.8rem; font-weight: 700; font-family: monospace; }
-    .sc-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.55; }
-    .sc-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.35rem;
-      margin-top: 0.2rem;
-    }
-    .sc-tag {
-      font-size: 0.6rem;
-      font-weight: 600;
-      padding: 0.15rem 0.4rem;
-      border-radius: 4px;
-    }
-
-    @media (max-width: 700px) {
-      .slide { padding: 2rem 1.5rem; }
-      .svc-layout, .problem-grid, .arch-apps, .summary-grid { grid-template-columns: 1fr; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ruby-http-error-statuses</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f0f5;color:#1a1a1a;min-height:100vh}
+header{background:#632CA6;color:#fff;padding:0;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(99,44,166,.35)}
+.header-inner{max-width:900px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.repo-title{font-size:1.05rem;font-weight:700;letter-spacing:.3px;opacity:.95}
+.lang-btns{display:flex;gap:6px}
+.lang-btn{border:2px solid rgba(255,255,255,.55);background:transparent;color:#fff;padding:5px 14px;border-radius:999px;cursor:pointer;font-size:.82rem;font-weight:600;transition:all .18s;white-space:nowrap}
+.lang-btn:hover{background:rgba(255,255,255,.18)}
+.lang-btn.active{background:#fff;color:#632CA6;border-color:#fff}
+main{max-width:900px;margin:0 auto;padding:32px 20px 60px}
+[data-lang]{display:none}
+[data-lang].visible{display:block}
+.page-hero{background:linear-gradient(135deg,#632CA6 0%,#7952CC 100%);color:#fff;border-radius:16px;padding:36px 32px;margin-bottom:28px;box-shadow:0 4px 24px rgba(99,44,166,.22)}
+.page-hero h1{font-size:1.7rem;font-weight:800;margin-bottom:8px;line-height:1.25}
+.page-hero .subtitle{opacity:.88;font-size:1rem;line-height:1.55}
+.card{background:#fff;border-radius:14px;padding:28px 30px;margin-bottom:20px;box-shadow:0 2px 12px rgba(0,0,0,.07);border:1px solid #e8e4f0}
+.card h2{font-size:1.13rem;font-weight:700;color:#632CA6;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.card h2 .icon{font-size:1.1em}
+.card p{line-height:1.7;color:#333;margin-bottom:10px}
+.card p:last-child{margin-bottom:0}
+.card ul{margin:8px 0 0 18px;line-height:1.8;color:#333}
+.card ul li{margin-bottom:4px}
+.card ul li strong{color:#632CA6}
+pre{background:#1e1e2e;color:#cdd6f4;border-radius:10px;padding:18px 20px;font-size:.84rem;overflow-x:auto;margin:12px 0;line-height:1.6;font-family:'SF Mono','Fira Code',monospace}
+code{background:#f0eaf8;color:#632CA6;border-radius:4px;padding:1px 6px;font-size:.87em;font-family:'SF Mono','Fira Code',monospace}
+.arch-wrap{background:#f8f6fc;border-radius:12px;padding:24px 20px;margin:14px 0;overflow-x:auto}
+.arch{display:flex;align-items:center;justify-content:flex-start;gap:0;flex-wrap:wrap;min-width:fit-content}
+.arch-col{display:flex;flex-direction:column;align-items:center;gap:8px}
+.box{background:#fff;border:2px solid #7952CC;border-radius:10px;padding:10px 14px;font-size:.8rem;font-weight:600;color:#632CA6;text-align:center;white-space:nowrap;box-shadow:0 2px 6px rgba(121,82,204,.12);min-width:90px}
+.box.green{border-color:#2da84e;color:#1a7a38}
+.box.blue{border-color:#0066cc;color:#004a99}
+.box.orange{border-color:#e0720c;color:#b35800}
+.box.gray{border-color:#888;color:#555}
+.box.red{border-color:#cc2222;color:#991111}
+.arrow{font-size:1.3rem;color:#7952CC;padding:0 6px;font-weight:700;align-self:center}
+.arrow-label{font-size:.72rem;color:#888;text-align:center;margin-top:2px}
+.arrow-col{display:flex;flex-direction:column;align-items:center;justify-content:center}
+.arch-row{display:flex;align-items:center;gap:0;margin-bottom:8px;flex-wrap:wrap}
+.badge{display:inline-block;background:#f0eaf8;color:#632CA6;border-radius:6px;padding:2px 9px;font-size:.78rem;font-weight:600;margin:2px 3px}
+.qs-steps{counter-reset:step}
+.qs-steps li{list-style:none;margin-bottom:10px;padding-left:36px;position:relative;line-height:1.6}
+.qs-steps li::before{content:counter(step);counter-increment:step;position:absolute;left:0;top:0;background:#632CA6;color:#fff;width:24px;height:24px;border-radius:50%;font-size:.78rem;font-weight:700;display:flex;align-items:center;justify-content:center}
+.see-tag{display:inline-block;background:#632CA6;color:#fff;border-radius:6px;padding:3px 10px;font-size:.8rem;margin:2px 3px;font-weight:500}
+</style>
 </head>
 <body>
-
-<div class="progress-bar" id="progress"></div>
-
-<div class="deck" id="deck">
-
-  <!-- ═══ SLIDE 1 ── タイトル ════════════════════════════════ -->
-  <div class="slide active" id="s1">
-    <div class="title-code">DD_TRACE_HTTP_SERVER_ERROR_STATUSES</div>
-    <h1 class="slide-title">dd-trace-ruby で<br/>4xx エラーを追跡する</h1>
-    <p class="title-sub">APM Traces Explorer と Error Tracking に 4xx を表示するまで</p>
-    <div class="title-tech-stack">
-      <span class="tech-badge">Ruby 3.3</span>
-      <span class="tech-badge">Rack</span>
-      <span class="tech-badge">dd-trace-rb 2.x</span>
-      <span class="tech-badge">Datadog Agent 7</span>
-      <span class="tech-badge">Docker Compose</span>
+<header>
+  <div class="header-inner">
+    <span class="repo-title">ruby-http-error-statuses</span>
+    <div class="lang-btns">
+      <button class="lang-btn active" onclick="setLang('en',this)">English</button>
+      <button class="lang-btn" onclick="setLang('ja',this)">日本語</button>
+      <button class="lang-btn" onclick="setLang('zh',this)">繁體中文</button>
     </div>
   </div>
+</header>
+<main>
 
-  <!-- ═══ SLIDE 2 ── デフォルト動作 ════════════════════════ -->
-  <div class="slide" id="s2">
-    <div class="slide-tag">はじめに</div>
-    <h2 class="slide-heading">Datadog のデフォルト動作を理解する</h2>
-    <div class="problem-grid">
-      <div class="problem-card">
-        <h3 class="hl-blue">デフォルトでエラーになるもの</h3>
-        <p>
-          <code>Rack::TraceMiddleware</code> はレスポンスを自動で計装しますが、
-          デフォルトでは <strong>5xx（500〜599）のみ</strong>を
-          エラーとしてマークします。
-        </p>
-        <div class="status-row">
-          <span class="status-chip chip-red">500 ✗ エラー扱い</span>
-          <span class="status-chip chip-red">503 ✗ エラー扱い</span>
-        </div>
-      </div>
-      <div class="problem-card">
-        <h3 class="hl-red">デフォルトでエラーにならないもの</h3>
-        <p>
-          <strong>4xx はデフォルトで通常レスポンス</strong>として扱われます。
-          APM Traces Explorer に赤く表示されず、
-          Error Tracking にも Issue は作成されません。
-        </p>
-        <div class="status-row">
-          <span class="status-chip chip-gray">403 → エラーなし</span>
-          <span class="status-chip chip-gray">422 → エラーなし</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 3 ── 目標 ════════════════════════════════════ -->
-  <div class="slide" id="s3">
-    <div class="slide-tag">目標</div>
-    <h2 class="slide-heading">このデモで達成すること</h2>
-    <div class="goal-list">
-      <div class="goal-item">
-        <div class="goal-num">1</div>
-        <p>
-          <strong>APM Traces Explorer でエラーとして表示する</strong><br/>
-          <code>span.status = 1</code> がセットされると、スパンが赤くハイライトされ、エラーとして検索・フィルタできるようになります。
-        </p>
-      </div>
-      <div class="goal-item">
-        <div class="goal-num">2</div>
-        <p>
-          <strong>Error Tracking に Issue として集約する</strong><br/>
-          <code>error.type</code> / <code>error.message</code> / <code>error.stack</code> の 3 つが
-          セットされていると、同種エラーが自動でグルーピングされ Issue として管理できます。
-        </p>
-      </div>
-      <div class="goal-item">
-        <div class="goal-num">3</div>
-        <p>
-          <strong>3 つのアプローチを比較して違いを理解する</strong><br/>
-          「デフォルト」「環境変数で設定」「コードで設定」の 3 パターンで
-          どこまで追跡できるかを実際に確認します。
-        </p>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 4 ── アーキテクチャ ══════════════════════════ -->
-  <div class="slide" id="s4">
-    <div class="slide-tag">構成</div>
-    <h2 class="slide-heading">デモのコンテナ構成</h2>
-    <div class="arch-outer">
-      <div style="font-size:0.68rem;color:var(--muted);margin-bottom:0.4rem;">🖥 ホストマシン</div>
-      <div class="docker-box">
-        <span class="docker-label">Docker Network</span>
-        <div class="arch-apps">
-          <div class="arch-box ab">
-            <div class="arch-box-name">app-before</div>
-            <div class="arch-box-svc">http-status-before</div>
-            <div class="arch-box-port">host:4001 → 3000</div>
-            <div class="arch-box-env">設定なし（デフォルト）</div>
-          </div>
-          <div class="arch-box aa">
-            <div class="arch-box-name">app-after</div>
-            <div class="arch-box-svc">http-status-after</div>
-            <div class="arch-box-port">host:4002 → 3000</div>
-            <div class="arch-box-env">DD_TRACE_HTTP_SERVER
-_ERROR_STATUSES
-="403,422,500-599"</div>
-          </div>
-          <div class="arch-box ae">
-            <div class="arch-box-name">app-for-error-tracking</div>
-            <div class="arch-box-svc">http-status-for-error-tracking</div>
-            <div class="arch-box-port">host:4003 → 3000</div>
-            <div class="arch-box-env">span.set_error(exception)
-をコードで呼び出す</div>
-          </div>
-        </div>
-        <div class="arch-arrow">
-          <div class="line"></div>
-          <span>APM トレース送信</span>
-          <div class="line"></div>
-        </div>
-        <div style="display:flex;justify-content:center;"><div class="tri-down"></div></div>
-        <div class="arch-agent-row" style="margin-top:0.5rem;">
-          <div class="arch-agent-wrap">
-            <div class="arch-box ag">
-              <div class="arch-box-name">datadog-agent</div>
-              <div class="arch-box-svc">Datadog Agent v7</div>
-              <div class="arch-box-port">host:8127 → 8126</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="arch-outside">
-        <div class="vline"></div>
-        <div class="tri-down"></div>
-        <div style="font-size:0.62rem;color:var(--muted);margin:2px 0;">HTTPS</div>
-        <div class="cloud-box">
-          <div class="cloud-name">☁️ Datadog Cloud</div>
-          <div class="cloud-subs">
-            <span class="cloud-sub">APM Traces Explorer</span>
-            <span class="cloud-sub">Error Tracking</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 5 ── before: 説明 ═════════════════════════ -->
-  <div class="slide" id="s5">
-    <div class="slide-tag" style="background:rgba(148,163,184,0.12);border-color:rgba(148,163,184,0.3);color:#94a3b8;">Service ① — before</div>
-    <h2 class="slide-heading">何も設定しない場合（デフォルト）</h2>
-    <div class="svc-layout">
-      <div class="svc-col">
-        <div class="svc-label">docker-compose.yml</div>
-        <pre class="code-block"><span class="kw">app-before</span>:
-  environment:
-    <span class="cst">DD_SERVICE</span>: <span class="str">http-status-before</span>
-    <span class="cst">DD_ENV</span>: <span class="str">local</span>
-    <span class="cst">DD_AGENT_HOST</span>: <span class="str">datadog-agent</span>
-
-<span class="cmt"># DD_TRACE_HTTP_SERVER_ERROR_STATUSES
-# → 未設定 = デフォルト (500-599)</span></pre>
-        <div class="explain-box">
-          <p>
-            環境変数を一切追加しない最もシンプルな構成です。
-            <strong>Rack の自動計装のみ</strong>が動作します。
-          </p>
-          <p>
-            403 / 422 を返しても <code>span.status</code> は <code>0</code> のまま。
-            エラーとして記録されません。
-          </p>
-        </div>
-      </div>
-      <div class="svc-col">
-        <div class="svc-label">結果</div>
-        <div class="result-box">
-          <div class="result-row">
-            <span class="label">span.status</span>
-            <span><code>0</code>（エラーなし）</span>
-          </div>
-          <div class="result-row">
-            <span class="label">error.type</span>
-            <span style="color:var(--muted)">—</span>
-          </div>
-          <div class="result-row">
-            <span class="label">APM Traces Explorer</span>
-            <span class="val-ng">✗ エラーなし</span>
-          </div>
-          <div class="result-row">
-            <span class="label">Error Tracking</span>
-            <span class="val-ng">✗ Issue なし</span>
-          </div>
-        </div>
-        <div class="explain-box">
-          <p>
-            <strong>いつ使うか：</strong>
-            4xx はすべて「正常な業務レスポンス」として扱いたい場合。
-            例：認証エラーや入力バリデーションエラーをノイズとして除外したいとき。
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 6 ── before: フロー ════════════════════════ -->
-  <div class="slide" id="s6">
-    <div class="slide-tag" style="background:rgba(148,163,184,0.12);border-color:rgba(148,163,184,0.3);color:#94a3b8;">Service ① — before フロー</div>
-    <h2 class="slide-heading">span がエラーとしてマークされるまでの流れ（before）</h2>
-    <div class="mermaid-box" style="max-width:640px;width:100%;margin-top:0.6rem;">
-      <pre class="mermaid">
-flowchart TD
-    A["📥 POST /forbidden を受信"] --> B["Rack Middleware\nspan を作成\nstatus = 0"]
-    B --> C["App が処理 → 403 Forbidden を返す"]
-    C --> D{"エラー範囲チェック\nデフォルト: 500-599"}
-    D -->|"403 ∉ エラー範囲"| E["span.status = 0 のまま\nerror タグは付与されない"]
-    D -->|"500〜599 のみ該当"| X["500系なら span.status = 1"]
-    E --> F["Datadog Agent に span を送信"]
-    F --> G1["APM Traces Explorer\nエラーなし ✗"]
-    F --> G2["Error Tracking\nIssue なし ✗"]
-
-    classDef default fill:#242740,stroke:#2e3250,color:#e2e8f0
-    classDef decision fill:#1a1d2e,stroke:#3a4060,color:#e2e8f0
-    classDef ok fill:#052e16,stroke:#34d399,color:#34d399
-    classDef ng fill:#2d0a0a,stroke:#f87171,color:#f87171
-    classDef gray fill:#1e2335,stroke:#4b5563,color:#94a3b8
-
-    class D decision
-    class G1,G2 ng
-    class X gray
-      </pre>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 7 ── after: 説明 ═══════════════════════════ -->
-  <div class="slide" id="s7">
-    <div class="slide-tag" style="background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.3);color:var(--yellow);">Service ② — after</div>
-    <h2 class="slide-heading"><code style="font-size:0.7em;">DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code> を設定する</h2>
-    <div class="svc-layout">
-      <div class="svc-col">
-        <div class="svc-label">docker-compose.yml</div>
-        <pre class="code-block"><span class="kw">app-after</span>:
-  environment:
-    <span class="cst">DD_SERVICE</span>: <span class="str">http-status-after</span>
-    <span class="cst">DD_ENV</span>: <span class="str">local</span>
-    <span class="cst">DD_AGENT_HOST</span>: <span class="str">datadog-agent</span>
-    <span class="cmt"># 403, 422 をエラー範囲に追加</span>
-    <span class="cst">DD_TRACE_HTTP_SERVER_ERROR_STATUSES</span>:
-      <span class="str">"403,422,500-599"</span></pre>
-        <div class="explain-box">
-          <p>
-            この環境変数を設定するだけで、
-            <strong>コード変更なし</strong>で 4xx をエラーとしてマークできます。
-          </p>
-          <p>
-            ただし Rack Middleware が行うのは <code>span.status=1</code> の設定のみ。
-            <code>error.type</code> などのタグは付与されません。
-          </p>
-        </div>
-      </div>
-      <div class="svc-col">
-        <div class="svc-label">結果</div>
-        <div class="result-box">
-          <div class="result-row">
-            <span class="label">span.status</span>
-            <span><code>1</code>（エラー）</span>
-          </div>
-          <div class="result-row">
-            <span class="label">error.type / message / stack</span>
-            <span style="color:var(--muted)">— 付与されない</span>
-          </div>
-          <div class="result-row">
-            <span class="label">APM Traces Explorer</span>
-            <span class="val-ok">✓ エラー表示</span>
-          </div>
-          <div class="result-row">
-            <span class="label">Error Tracking</span>
-            <span class="val-ng">✗ Issue なし</span>
-          </div>
-        </div>
-        <div class="explain-box">
-          <p>
-            <strong>いつ使うか：</strong>
-            APM での可視化（エラーレート監視・アラート）だけが目的の場合。
-            Error Tracking は不要で、特定の 4xx を APM 上でエラーカウントしたいとき。
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 8 ── after: フロー ═════════════════════════ -->
-  <div class="slide" id="s8">
-    <div class="slide-tag" style="background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.3);color:var(--yellow);">Service ② — after フロー</div>
-    <h2 class="slide-heading">span がエラーとしてマークされるまでの流れ（after）</h2>
-    <div class="mermaid-box" style="max-width:680px;width:100%;margin-top:0.6rem;">
-      <pre class="mermaid">
-flowchart TD
-    A["📥 POST /forbidden を受信"] --> B["Rack Middleware\nspan を作成\nstatus = 0"]
-    B --> C["App が処理 → 403 Forbidden を返す"]
-    C --> D{"エラー範囲チェック\nDD_TRACE_HTTP_SERVER_ERROR_STATUSES\n= 403,422,500-599"}
-    D -->|"403 ∈ エラー範囲"| E["span.status = 1 にセット"]
-    E --> F["⚠️ error.type / error.message / error.stack\nは付与されない"]
-    F --> G["Datadog Agent に span を送信"]
-    G --> H1["APM Traces Explorer\nエラー表示 ✓"]
-    G --> H2["Error Tracking\nIssue なし ✗\n（error タグが必要）"]
-
-    classDef default fill:#242740,stroke:#2e3250,color:#e2e8f0
-    classDef decision fill:#1a1d2e,stroke:#3a4060,color:#e2e8f0
-    classDef ok fill:#052e16,stroke:#34d399,color:#34d399
-    classDef ng fill:#2d0a0a,stroke:#f87171,color:#f87171
-    classDef warn fill:#2d1f00,stroke:#fbbf24,color:#fbbf24
-
-    class D decision
-    class H1 ok
-    class H2 ng
-    class F warn
-      </pre>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 9 ── for-error-tracking: 説明 ═════════════ -->
-  <div class="slide" id="s9">
-    <div class="slide-tag" style="background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.3);color:var(--green);">Service ③ — for-error-tracking</div>
-    <h2 class="slide-heading"><code style="font-size:0.75em;">span.set_error</code> をコードで呼び出す</h2>
-    <div class="svc-layout">
-      <div class="svc-col">
-        <div class="svc-label">config.ru（抜粋）</div>
-        <pre class="code-block"><span class="kw">when</span> <span class="str">'/forbidden'</span>
-  span = Datadog::Tracing.<span class="mth">active_span</span>
-  <span class="kw">if</span> span
-    err = StandardError.<span class="mth">new</span>(<span class="str">'Access forbidden'</span>)
-    err.<span class="mth">set_backtrace</span>(<span class="mth">caller</span>)
-    <span class="cmt"># status=1 + error タグを一括セット</span>
-    span.<span class="mth">set_error</span>(err)
-  <span class="kw">end</span>
-  [<span class="num">403</span>, headers, body]</pre>
-        <div class="explain-box">
-          <p>
-            <code>span.set_error(exception)</code> は内部で
-            <code>span.status=1</code> と
-            <code>error.type / error.message / error.stack</code> を
-            <strong>一括でセット</strong>します。
-          </p>
-          <p>
-            環境変数の追加は不要。アプリコードで制御するため、
-            <strong>特定の条件だけエラーにしたい</strong>場合に最適です。
-          </p>
-        </div>
-      </div>
-      <div class="svc-col">
-        <div class="svc-label">結果</div>
-        <div class="result-box">
-          <div class="result-row">
-            <span class="label">span.status</span>
-            <span><code>1</code>（エラー）</span>
-          </div>
-          <div class="result-row">
-            <span class="label">error.type</span>
-            <span><code>"StandardError"</code></span>
-          </div>
-          <div class="result-row">
-            <span class="label">error.message</span>
-            <span><code>"Access forbidden"</code></span>
-          </div>
-          <div class="result-row">
-            <span class="label">APM Traces Explorer</span>
-            <span class="val-ok">✓ エラー表示</span>
-          </div>
-          <div class="result-row">
-            <span class="label">Error Tracking</span>
-            <span class="val-ok">✓ Issue 作成</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 10 ── for-error-tracking: フロー ══════════ -->
-  <div class="slide" id="s10">
-    <div class="slide-tag" style="background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.3);color:var(--green);">Service ③ — for-error-tracking フロー</div>
-    <h2 class="slide-heading">span がエラーとしてマークされるまでの流れ（for-error-tracking）</h2>
-    <div class="mermaid-box" style="max-width:660px;width:100%;margin-top:0.6rem;">
-      <pre class="mermaid">
-flowchart TD
-    A["📥 POST /forbidden を受信"] --> B["Rack Middleware\nspan を作成\nstatus = 0"]
-    B --> C["span.set_error(exception) を呼び出す"]
-    C --> D["span.status = 1\nerror.type = 'StandardError'\nerror.message = 'Access forbidden'\nerror.stack = スタックトレース"]
-    D --> E["App が 403 Forbidden を返す"]
-    E --> F["Datadog Agent に span を送信\n（status=1 + error タグ付き）"]
-    F --> G1["APM Traces Explorer\nエラー表示 ✓"]
-    F --> G2["Error Tracking\nIssue 作成 ✓"]
-
-    classDef default fill:#242740,stroke:#2e3250,color:#e2e8f0
-    classDef setError fill:#052e16,stroke:#34d399,color:#34d399
-    classDef ok fill:#052e16,stroke:#34d399,color:#34d399
-
-    class C,D setError
-    class G1,G2 ok
-      </pre>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 11 ── 比較表 ══════════════════════════════ -->
-  <div class="slide" id="s11">
-    <div class="slide-tag">まとめ</div>
-    <h2 class="slide-heading">3 サービスの比較</h2>
-    <table class="cmp-table">
-      <thead>
-        <tr>
-          <th>サービス</th>
-          <th>設定方法</th>
-          <th>span.status</th>
-          <th>error タグ</th>
-          <th>APM</th>
-          <th>Error Tracking</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><span class="sn sn-b">http-status-before</span></td>
-          <td style="color:var(--muted);font-size:0.8rem;">デフォルト（未設定）</td>
-          <td><code>0</code></td>
-          <td style="color:var(--muted)">—</td>
-          <td><span class="status-chip chip-gray" style="font-size:0.72rem;">✗ なし</span></td>
-          <td><span class="status-chip chip-gray" style="font-size:0.72rem;">✗ なし</span></td>
-        </tr>
-        <tr>
-          <td><span class="sn sn-a">http-status-after</span></td>
-          <td style="font-size:0.78rem;"><code>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code></td>
-          <td><code>1</code></td>
-          <td style="color:var(--muted)">—</td>
-          <td><span class="status-chip chip-green" style="font-size:0.72rem;">✓ あり</span></td>
-          <td><span class="status-chip chip-gray" style="font-size:0.72rem;">✗ なし</span></td>
-        </tr>
-        <tr>
-          <td><span class="sn sn-e">http-status-for-error-tracking</span></td>
-          <td style="font-size:0.78rem;"><code>span.set_error(exception)</code></td>
-          <td><code>1</code></td>
-          <td style="font-size:0.72rem;line-height:1.6;"><code>error.type</code><br/><code>error.message</code><br/><code>error.stack</code></td>
-          <td><span class="status-chip chip-green" style="font-size:0.72rem;">✓ あり</span></td>
-          <td><span class="status-chip chip-green" style="font-size:0.72rem;">✓ Issue 作成</span></td>
-        </tr>
-      </tbody>
-    </table>
-    <div style="margin-top:1.2rem;background:rgba(123,97,255,0.08);border:1px solid rgba(123,97,255,0.25);border-radius:10px;padding:0.9rem 1.2rem;max-width:860px;width:100%;">
-      <p style="font-size:0.83rem;color:var(--muted);line-height:1.7;">
-        <strong style="color:var(--purple-l);">ポイント：</strong>
-        Error Tracking に Issue を作成するには <code>error.type</code> / <code>error.message</code> / <code>error.stack</code> の 3 つが必須です。
-        <code>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code> だけでは <code>span.status=1</code> のみが設定されるため、Error Tracking には届きません。
-      </p>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 12 ── セットアップ ════════════════════════ -->
-  <div class="slide" id="s12">
-    <div class="slide-tag">実践</div>
-    <h2 class="slide-heading">このデモを動かす手順</h2>
-    <div class="setup-steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-content">
-          <div class="step-title">リポジトリをクローン</div>
-          <code>git clone https://github.com/yuandesu/dd-trace-ruby-http-error-statuses.git</code>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-content">
-          <div class="step-title">.env ファイルを作成</div>
-          <code>echo "DD_API_KEY=your_api_key_here" > .env</code>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-content">
-          <div class="step-title">全サービスを起動</div>
-          <code>docker compose up -d</code>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-content">
-          <div class="step-title">テストリクエストを送信</div>
-          <code>bash test.sh</code>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">5</div>
-        <div class="step-content">
-          <div class="step-title">Datadog で確認</div>
-          APM → Traces <code>env:local</code> でフィルタ ／ APM → Error Tracking
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE 13 ── まとめ ══════════════════════════════ -->
-  <div class="slide" id="s-summary">
-    <div class="slide-tag">まとめ</div>
-    <h2 class="slide-heading">どのアプローチを選ぶか</h2>
-    <div class="summary-grid">
-      <div class="summary-card sc-b">
-        <div class="sc-name">before（デフォルト）</div>
-        <div class="sc-desc">4xx を業務上の正常レスポンスとして扱う場合。エラー追跡は不要。</div>
-        <div class="sc-tags">
-          <span class="sc-tag" style="background:rgba(148,163,184,0.15);color:#94a3b8;">APM ✗</span>
-          <span class="sc-tag" style="background:rgba(148,163,184,0.15);color:#94a3b8;">Error Tracking ✗</span>
-        </div>
-      </div>
-      <div class="summary-card sc-a">
-        <div class="sc-name">after（env var）</div>
-        <div class="sc-desc">コード変更なしで APM にエラー表示したい場合。エラーレート監視・アラートに活用できる。</div>
-        <div class="sc-tags">
-          <span class="sc-tag" style="background:rgba(52,211,153,0.15);color:var(--green);">APM ✓</span>
-          <span class="sc-tag" style="background:rgba(248,113,113,0.15);color:var(--red);">Error Tracking ✗</span>
-        </div>
-      </div>
-      <div class="summary-card sc-e">
-        <div class="sc-name">for-error-tracking</div>
-        <div class="sc-desc">APM のエラー表示 + Error Tracking の Issue 管理まで行いたい場合。<code>span.set_error</code> が必須。</div>
-        <div class="sc-tags">
-          <span class="sc-tag" style="background:rgba(52,211,153,0.15);color:var(--green);">APM ✓</span>
-          <span class="sc-tag" style="background:rgba(52,211,153,0.15);color:var(--green);">Error Tracking ✓</span>
-        </div>
-      </div>
-    </div>
-    <div style="margin-top:1.5rem;text-align:center;">
-      <a href="https://github.com/yuandesu/dd-trace-ruby-http-error-statuses"
-         style="color:var(--purple-l);text-decoration:none;font-size:0.85rem;border:1px solid rgba(123,97,255,0.3);padding:0.4rem 1rem;border-radius:8px;">
-        ☞ GitHub リポジトリ
-      </a>
-    </div>
-  </div>
-
-</div><!-- /deck -->
-
-<!-- Navigation -->
-<div class="nav">
-  <button class="nav-btn" id="btn-prev" onclick="navigate(-1)" disabled>←</button>
-  <div class="nav-dots" id="dots"></div>
-  <span class="nav-counter" id="counter">1 / 13</span>
-  <button class="nav-btn" id="btn-next" onclick="navigate(1)">→</button>
+<div data-lang="en">
+<div class="page-hero">
+  <h1>ruby-http-error-statuses</h1>
+  <p class="subtitle">Understand the difference between DD_TRACE_HTTP_SERVER_ERROR_STATUSES and span.set_error for 4xx errors in Datadog APM and Error Tracking.</p>
 </div>
-<div class="key-hint">← → キーでも移動できます</div>
-
+<div class="card">
+  <h2><span class="icon">🎯</span>Purpose</h2>
+  <p>This demo clarifies two distinct mechanisms for tracking 4xx HTTP errors in Datadog: making a span appear red in APM (error status) vs. creating an actionable Issue in Error Tracking (error details). They are independent — you need both configs to get both behaviors.</p>
+  <p><strong>The core problem:</strong> Datadog's Ruby tracer marks 5xx responses as errors by default — because 5xx means the server failed. But 4xx responses (403 Forbidden, 422 Unprocessable) can also represent business errors worth tracking. There are two separate mechanisms: (1) <code>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code> marks the span with <code>span.status=1</code> so it appears red in APM, and (2) <code>span.set_error</code> attaches <code>error.type</code>, <code>error.message</code>, and <code>error.stack</code> — the three tags required for Error Tracking to create an Issue. These are completely separate and each requires its own configuration.</p>
+</div>
+<div class="card">
+  <h2><span class="icon">🏗️</span>How It Works — Architecture</h2>
+  
+<div class="arch-wrap">
+  <div class="arch-row">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4001</div></div>
+    <div class="box green">app-before<br><small>no error config</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM</div></div>
+    <div class="box" style="border-color:#888;color:#555">no error<br><small>span is grey</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4002</div></div>
+    <div class="box blue">app-after<br><small>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM</div></div>
+    <div class="box red">red span<br><small>no Issue</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4003</div></div>
+    <div class="box" style="border-color:#7952CC;color:#632CA6">app-for-error-tracking<br><small>span.set_error</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM + ET</div></div>
+    <div class="box red">red span<br><small>+ Error Tracking Issue</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div style="flex:1;text-align:center;font-size:.8rem;color:#888">All three apps → Datadog Agent :8127 → Datadog</div>
+  </div>
+</div>
+  <p>Three Ruby/Rack apps, each handling the same 403/422 endpoints with different error configurations. All send traces to a single Datadog Agent on port 8127. Run <code>test.sh</code> to trigger requests to all three simultaneously.</p>
+</div>
+<div class="card">
+  <h2><span class="icon">💡</span>Key Concepts</h2>
+  <ul>
+    <li><strong>span.status=1:</strong> Marks the span as an error — makes it appear red in APM trace views. Does NOT create an Error Tracking Issue.</li>
+    <li><strong>error.type / error.message / error.stack:</strong> The three span tags required for Error Tracking to create an Issue. Setting these alone does NOT turn the span red.</li>
+    <li><strong>DD_TRACE_HTTP_SERVER_ERROR_STATUSES:</strong> Env var — e.g. <code>400-499,500-599</code> — that instructs the tracer to set <code>span.status=1</code> for matching HTTP status codes. Sets status only, no error detail tags.</li>
+    <li><strong>span.set_error (Ruby):</strong> A tracer method that sets BOTH <code>span.status=1</code> AND all <code>error.*</code> tags in one call. Full APM + Error Tracking integration.</li>
+  </ul>
+</div>
+<div class="card">
+  <h2><span class="icon">🚀</span>Quick Start</h2>
+  <ol class="qs-steps">
+    <li>Set your API key: <pre>echo "DD_API_KEY=your_key_here" > .env</pre></li>
+    <li>Start all services: <pre>docker compose up -d</pre></li>
+    <li>Run test requests to all three apps: <pre>bash test.sh</pre></li>
+  </ol>
+</div>
+<div class="card">
+  <h2><span class="icon">📊</span>What You'll See in Datadog</h2>
+  <p><strong>APM → Traces:</strong></p>
+  <span class="see-tag">before: grey span (no error)</span>
+  <span class="see-tag">after: red span (status only)</span>
+  <span class="see-tag">for-error-tracking: red span + full details</span>
+  <p style="margin-top:10px"><strong>Error Tracking:</strong> Only <code>app-for-error-tracking</code> creates Issues. The other two apps generate no Error Tracking Issues, even when spans are red.</p>
+</div>
+</div>
+<div data-lang="ja">
+<div class="page-hero">
+  <h1>ruby-http-error-statuses</h1>
+  <p class="subtitle">Datadog APMとエラートラッキングにおける4xxエラーの<code>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code>と<code>span.set_error</code>の違いを理解します。</p>
+</div>
+<div class="card">
+  <h2><span class="icon">🎯</span>目的</h2>
+  <p>4xx HTTPエラーをDatadogで追跡するための2つの異なるメカニズムを明確にします: APMでスパンを赤く表示するか（エラーステータス）、エラートラッキングで対応可能なIssueを作成するか（エラー詳細）。これらは独立しており、両方の動作を得るには両方の設定が必要です。</p>
+  <p><strong>核心的な問題:</strong> DatadogのRubyトレーサーはデフォルトで5xxをエラーとしてマークします。しかし4xx（403 Forbidden、422 Unprocessable）も追跡すべきビジネスエラーになりえます。2つの別々のメカニズムがあります: (1) <code>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code>はスパンを赤くし、(2) <code>span.set_error</code>は<code>error.type</code>・<code>error.message</code>・<code>error.stack</code>を設定してエラートラッキングIssueを作成します。</p>
+</div>
+<div class="card">
+  <h2><span class="icon">🏗️</span>仕組み — アーキテクチャ</h2>
+  
+<div class="arch-wrap">
+  <div class="arch-row">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4001</div></div>
+    <div class="box green">app-before<br><small>no error config</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM</div></div>
+    <div class="box" style="border-color:#888;color:#555">no error<br><small>span is grey</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4002</div></div>
+    <div class="box blue">app-after<br><small>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM</div></div>
+    <div class="box red">red span<br><small>no Issue</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4003</div></div>
+    <div class="box" style="border-color:#7952CC;color:#632CA6">app-for-error-tracking<br><small>span.set_error</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM + ET</div></div>
+    <div class="box red">red span<br><small>+ Error Tracking Issue</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div style="flex:1;text-align:center;font-size:.8rem;color:#888">All three apps → Datadog Agent :8127 → Datadog</div>
+  </div>
+</div>
+  <p>3つのRuby/Rackアプリ。それぞれ同じ403/422エンドポイントを異なるエラー設定で処理します。すべてポート8127の単一DatadogエージェントにトレースをSendします。<code>test.sh</code>で3つすべてにリクエストを送ります。</p>
+</div>
+<div class="card">
+  <h2><span class="icon">💡</span>重要な概念</h2>
+  <ul>
+    <li><strong>span.status=1:</strong> スパンをエラーとしてマーク — APMで赤く表示されます。エラートラッキングIssueは作成しません。</li>
+    <li><strong>error.type / error.message / error.stack:</strong> エラートラッキングでIssueを作成するための3つのスパンタグ。これだけではスパンは赤くなりません。</li>
+    <li><strong>DD_TRACE_HTTP_SERVER_ERROR_STATUSES:</strong> <code>400-499,500-599</code>などの設定で、該当HTTPステータスコードに<code>span.status=1</code>を設定します。ステータスのみ設定、エラー詳細タグはなし。</li>
+    <li><strong>span.set_error (Ruby):</strong> <code>span.status=1</code>とすべての<code>error.*</code>タグを一度に設定するトレーサーメソッド。APM + エラートラッキングを完全に統合します。</li>
+  </ul>
+</div>
+<div class="card">
+  <h2><span class="icon">🚀</span>クイックスタート</h2>
+  <ol class="qs-steps">
+    <li>APIキーを設定: <pre>echo "DD_API_KEY=your_key_here" > .env</pre></li>
+    <li>全サービスを起動: <pre>docker compose up -d</pre></li>
+    <li>3つのアプリにテストリクエスト: <pre>bash test.sh</pre></li>
+  </ol>
+</div>
+<div class="card">
+  <h2><span class="icon">📊</span>Datadogで確認できること</h2>
+  <p><strong>APM → トレース:</strong></p>
+  <span class="see-tag">before: グレースパン（エラーなし）</span>
+  <span class="see-tag">after: 赤スパン（ステータスのみ）</span>
+  <span class="see-tag">for-error-tracking: 赤スパン + 詳細情報</span>
+  <p style="margin-top:10px"><strong>エラートラッキング:</strong> <code>app-for-error-tracking</code>のみがIssueを作成します。スパンが赤くても、他の2つのアプリはエラートラッキングIssueを作成しません。</p>
+</div>
+</div>
+<div data-lang="zh">
+<div class="page-hero">
+  <h1>ruby-http-error-statuses</h1>
+  <p class="subtitle">了解 Datadog APM 和 Error Tracking 中 4xx 錯誤的 <code>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code> 與 <code>span.set_error</code> 的區別。</p>
+</div>
+<div class="card">
+  <h2><span class="icon">🎯</span>目的</h2>
+  <p>本示範釐清在 Datadog 中追蹤 4xx HTTP 錯誤的兩種不同機制：讓 span 在 APM 中顯示為紅色（錯誤狀態）vs. 在 Error Tracking 中建立可操作的 Issue（錯誤詳情）。它們是獨立的——需要兩種設定才能獲得兩種行為。</p>
+  <p><strong>核心問題：</strong>Datadog 的 Ruby tracer 預設將 5xx 回應標記為錯誤，因為 5xx 表示伺服器失敗。但 4xx 回應（403 Forbidden、422 Unprocessable）也可能是值得追蹤的業務錯誤。有兩種獨立機制：(1) <code>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</code> 設定 <code>span.status=1</code> 使 span 在 APM 中顯示為紅色，(2) <code>span.set_error</code> 附加 <code>error.type</code>、<code>error.message</code> 和 <code>error.stack</code>——Error Tracking 建立 Issue 所需的三個標籤。</p>
+</div>
+<div class="card">
+  <h2><span class="icon">🏗️</span>運作方式 — 架構</h2>
+  
+<div class="arch-wrap">
+  <div class="arch-row">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4001</div></div>
+    <div class="box green">app-before<br><small>no error config</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM</div></div>
+    <div class="box" style="border-color:#888;color:#555">no error<br><small>span is grey</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4002</div></div>
+    <div class="box blue">app-after<br><small>DD_TRACE_HTTP_SERVER_ERROR_STATUSES</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM</div></div>
+    <div class="box red">red span<br><small>no Issue</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div class="box gray">curl<br><small>GET /forbidden</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">:4003</div></div>
+    <div class="box" style="border-color:#7952CC;color:#632CA6">app-for-error-tracking<br><small>span.set_error</small></div>
+    <div class="arrow-col"><div class="arrow">→</div><div class="arrow-label">APM + ET</div></div>
+    <div class="box red">red span<br><small>+ Error Tracking Issue</small></div>
+  </div>
+  <div class="arch-row" style="margin-top:8px">
+    <div style="flex:1;text-align:center;font-size:.8rem;color:#888">All three apps → Datadog Agent :8127 → Datadog</div>
+  </div>
+</div>
+  <p>三個 Ruby/Rack 應用程式，每個以不同的錯誤設定處理相同的 403/422 端點。全部向端口 8127 的單一 Datadog Agent 發送追蹤。執行 <code>test.sh</code> 同時向三個應用程式觸發請求。</p>
+</div>
+<div class="card">
+  <h2><span class="icon">💡</span>核心概念</h2>
+  <ul>
+    <li><strong>span.status=1：</strong>將 span 標記為錯誤——使其在 APM 追蹤視圖中顯示為紅色。不建立 Error Tracking Issue。</li>
+    <li><strong>error.type / error.message / error.stack：</strong>Error Tracking 建立 Issue 所需的三個 span 標籤。僅設定這些不會使 span 變紅。</li>
+    <li><strong>DD_TRACE_HTTP_SERVER_ERROR_STATUSES：</strong>環境變數，例如 <code>400-499,500-599</code>，指示 tracer 為匹配的 HTTP 狀態碼設定 <code>span.status=1</code>。僅設定狀態，不設定錯誤詳情標籤。</li>
+    <li><strong>span.set_error (Ruby)：</strong>在一次呼叫中同時設定 <code>span.status=1</code> 和所有 <code>error.*</code> 標籤的 tracer 方法，完整整合 APM 和 Error Tracking。</li>
+  </ul>
+</div>
+<div class="card">
+  <h2><span class="icon">🚀</span>快速開始</h2>
+  <ol class="qs-steps">
+    <li>設定 API 金鑰：<pre>echo "DD_API_KEY=your_key_here" > .env</pre></li>
+    <li>啟動所有服務：<pre>docker compose up -d</pre></li>
+    <li>向三個應用程式執行測試請求：<pre>bash test.sh</pre></li>
+  </ol>
+</div>
+<div class="card">
+  <h2><span class="icon">📊</span>在 Datadog 中會看到什麼</h2>
+  <p><strong>APM → Traces：</strong></p>
+  <span class="see-tag">before：灰色 span（無錯誤）</span>
+  <span class="see-tag">after：紅色 span（僅狀態）</span>
+  <span class="see-tag">for-error-tracking：紅色 span + 完整詳情</span>
+  <p style="margin-top:10px"><strong>Error Tracking：</strong>只有 <code>app-for-error-tracking</code> 建立 Issue。即使 span 是紅色的，其他兩個應用程式也不會建立 Error Tracking Issue。</p>
+</div>
+</div>
+</main>
 <script>
-  mermaid.initialize({
-    startOnLoad: true,
-    theme: 'dark',
-    themeVariables: {
-      background: '#1a1d2e',
-      primaryColor: '#242740',
-      primaryTextColor: '#e2e8f0',
-      primaryBorderColor: '#2e3250',
-      lineColor: '#4b5563',
-      secondaryColor: '#1a1d2e',
-      noteBkgColor: '#1e2235',
-      noteTextColor: '#cbd5e1',
-      noteBorderColor: '#3a4060',
-      actorBkg: '#1a1d2e',
-      actorBorder: '#2e3250',
-      actorTextColor: '#e2e8f0',
-      actorLineColor: '#4b5563',
-    },
-    sequence: {
-      actorMargin: 70,
-      messageMargin: 38,
-      noteMargin: 12,
-      useMaxWidth: false,
-    }
-  });
-
-  const slides = Array.from(document.querySelectorAll('.slide'));
-  const total  = slides.length;
-  let current  = 0;
-
-  // Build dots
-  const dotsEl = document.getElementById('dots');
-  slides.forEach((_, i) => {
-    const d = document.createElement('div');
-    d.className = 'dot' + (i === 0 ? ' active' : '');
-    d.onclick = () => goTo(i);
-    dotsEl.appendChild(d);
-  });
-
-  function goTo(idx) {
-    if (idx < 0 || idx >= total) return;
-    const from = slides[current];
-    from.classList.remove('active');
-    if (idx > current) {
-      from.classList.add('exit-left');
-      setTimeout(() => from.classList.remove('exit-left'), 450);
-    }
-
-    current = idx;
-    slides[current].classList.add('active');
-
-    // dots
-    document.querySelectorAll('.dot').forEach((d, i) =>
-      d.classList.toggle('active', i === current)
-    );
-
-    // counter
-    document.getElementById('counter').textContent = `${current + 1} / ${total}`;
-
-    // buttons
-    document.getElementById('btn-prev').disabled = current === 0;
-    document.getElementById('btn-next').disabled = current === total - 1;
-
-    // progress
-    document.getElementById('progress').style.width =
-      `${((current + 1) / total) * 100}%`;
-  }
-
-  function navigate(dir) { goTo(current + dir); }
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
-      e.preventDefault(); navigate(1);
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault(); navigate(-1);
-    }
-  });
-
-  // Touch swipe
-  let tx = 0;
-  document.addEventListener('touchstart', e => { tx = e.touches[0].clientX; });
-  document.addEventListener('touchend', e => {
-    const dx = e.changedTouches[0].clientX - tx;
-    if (Math.abs(dx) > 50) navigate(dx < 0 ? 1 : -1);
-  });
-
-  // Initial progress
-  document.getElementById('progress').style.width = `${(1 / total) * 100}%`;
+function setLang(lang,btn){
+  document.querySelectorAll('[data-lang]').forEach(el=>el.classList.remove('visible'));
+  document.querySelectorAll('[data-lang="'+lang+'"]').forEach(el=>el.classList.add('visible'));
+  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('[data-lang="en"]').forEach(el=>el.classList.add('visible'));
+});
 </script>
 </body>
 </html>
